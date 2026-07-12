@@ -2,9 +2,10 @@ import logging
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
+# Включаем подробное логирование
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+    level=logging.DEBUG
 )
 
 # ================== НАСТРОЙКИ ==================
@@ -16,58 +17,54 @@ student_to_topic = {}
 topic_to_student = {}
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "👋 Привет! Напиши мне сообщение — оно будет отправлено учителям."
-    )
+    logging.info(f"Команда /start от пользователя {update.effective_user.id}")
+    await update.message.reply_text("👋 Бот работает. Напиши любое сообщение.")
 
 async def handle_student_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    message = update.message
-
+    text = update.message.text if update.message.text else "Не текст"
+    
+    logging.info(f"📨 Сообщение от ученика {user.id} ({user.full_name}): {text}")
+    
     if user.id not in student_to_topic:
+        logging.info(f"Создаём новую тему для ученика {user.id}")
         try:
-            # Название темы без ссылки на пользователя
-            topic_name = f"Ученик {user.full_name}"
             topic = await context.bot.create_forum_topic(
                 chat_id=GROUP_CHAT_ID,
-                name=topic_name
+                name=f"Ученик {user.full_name}"
             )
             thread_id = topic.message_thread_id
-            
             student_to_topic[user.id] = thread_id
             topic_to_student[thread_id] = user.id
-            
-            await update.message.reply_text("✅ Сообщение отправлено учителям.")
+            logging.info(f"Тема создана: {thread_id}")
+            await update.message.reply_text("✅ Тема создана. Сообщение отправлено.")
         except Exception as e:
             logging.error(f"Ошибка создания темы: {e}")
-            await update.message.reply_text("❌ Ошибка создания темы.")
             return
 
     thread_id = student_to_topic[user.id]
     try:
-        await message.forward(
-            chat_id=GROUP_CHAT_ID,
-            message_thread_id=thread_id
-        )
+        await update.message.forward(chat_id=GROUP_CHAT_ID, message_thread_id=thread_id)
+        logging.info(f"Сообщение успешно переслано в тему {thread_id}")
     except Exception as e:
-        logging.error(f"Ошибка пересылки ученика: {e}")
+        logging.error(f"Ошибка пересылки: {e}")
 
 async def handle_teacher_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Пересылает ответ учителя ученику"""
-    message = update.message
-    if not message or not message.message_thread_id:
+    if not update.message or not update.message.message_thread_id:
+        logging.debug("Получено сообщение без thread_id")
         return
-
-    thread_id = message.message_thread_id
+    
+    thread_id = update.message.message_thread_id
     student_id = topic_to_student.get(thread_id)
-
+    
+    logging.info(f"Ответ в теме {thread_id}. Ученик: {student_id}")
+    
     if student_id:
         try:
-            # Пересылаем без лишней информации
-            await message.forward(chat_id=student_id)
-            logging.info(f"Ответ учителя → ученику {student_id}")
+            await update.message.forward(chat_id=student_id)
+            logging.info(f"✅ Ответ успешно переслан ученику {student_id}")
         except Exception as e:
-            logging.error(f"Не удалось отправить ответ ученику {student_id}: {e}")
+            logging.error(f"❌ Ошибка пересылки учителя → ученику: {e}")
 
 def main():
     application = Application.builder().token(TOKEN).build()
@@ -84,7 +81,7 @@ def main():
         handle_teacher_reply
     ))
 
-    print("🤖 Бот запущен...")
+    print("🤖 Бот запущен с DEBUG логами...")
     application.run_polling()
 
 if __name__ == '__main__':
