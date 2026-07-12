@@ -1,11 +1,11 @@
 import logging
 import asyncio
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 # --- НАСТРОЙКИ (Замените на свои!) ---
-TOKEN = "8639656890:AAHOfXP_GA7Ve7wQD1WNjQY3pV_U-4FhMD0"  # Вставьте сюда ваш токен
-GROUP_ID = -1003721858380  # Вставьте ID вашей группы (это отрицательное число!)
+TOKEN = "ВАШ_ТОКЕН_ОТ_BOTFATHER"  # Вставьте сюда ваш токен
+GROUP_ID = -1001234567890  # Вставьте ID вашей группы (это отрицательное число!)
 # -------------------------------------
 
 # Включаем логирование, чтобы видеть, что бот работает
@@ -14,7 +14,6 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 logger = logging.getLogger(__name__)
 
 # Хранилище для связи "ID ученика" и "ID темы в группе"
-# В реальном проекте лучше использовать базу данных, но для старта подойдёт и это.
 user_topic_map = {}
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -69,6 +68,11 @@ async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         logger.error(f"Ошибка при отправке в группу: {e}")
         await message.reply_text("❌ Не удалось отправить сообщение. Попробуйте позже.")
 
+async def log_group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Логирует все сообщения из группы (отладочный)"""
+    if update.message and update.message.chat.type in ["group", "supergroup"]:
+        logger.info(f"Получено сообщение из группы: {update.message.text} (от {update.message.from_user.full_name})")
+
 async def handle_teacher_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик ответов учителей в группе (в теме ученика)"""
     message = update.message
@@ -76,6 +80,8 @@ async def handle_teacher_reply(update: Update, context: ContextTypes.DEFAULT_TYP
     # Проверяем, что это сообщение из группы и является ответом на другое сообщение
     if message.chat.type not in ["group", "supergroup"] or message.reply_to_message is None:
         return
+
+    logger.info(f"handle_teacher_reply вызвана, сообщение: {message.text}")
 
     # Пытаемся найти ID ученика по ID темы
     topic_id = message.message_thread_id
@@ -86,6 +92,7 @@ async def handle_teacher_reply(update: Update, context: ContextTypes.DEFAULT_TYP
             break
 
     if user_id is None:
+        logger.warning(f"Не найден ученик для темы {topic_id}")
         await message.reply_text("⚠️ Не удалось определить ученика для этого сообщения.")
         return
 
@@ -97,20 +104,10 @@ async def handle_teacher_reply(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         # Добавляем пометку в группе, что ответ отправлен
         await message.reply_text("✅ Ответ отправлен ученику.")
+        logger.info(f"Ответ отправлен ученику {user_id}")
     except Exception as e:
         logger.error(f"Ошибка при отправке ответа ученику: {e}")
         await message.reply_text("❌ Не удалось отправить ответ ученику.")
-
-async def log_group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Логирует все сообщения из группы"""
-    if update.message.chat.type in ["group", "supergroup"]:
-        logger.info(f"Получено сообщение из группы: {update.message.text} (от {update.message.from_user.full_name})")
-
-# Добавьте обработчик в main():
-application.add_handler(MessageHandler(
-    filters.Chat(chat_id=GROUP_ID) & filters.TEXT,
-    log_group_messages
-))
 
 def main():
     """Запуск бота"""
@@ -121,13 +118,19 @@ def main():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_user_message))
 
+    # Отладочный обработчик для всех сообщений из группы
+    application.add_handler(MessageHandler(
+        filters.Chat(chat_id=GROUP_ID) & filters.TEXT,
+        log_group_messages
+    ))
+
     # Обработчик для ответов в группе (фильтр: сообщение из группы, ответ на другое сообщение)
     application.add_handler(MessageHandler(
         filters.REPLY & filters.Chat(chat_id=GROUP_ID),
         handle_teacher_reply
     ))
 
-    # Запускаем бота (используем polling, так как это проще для Bothost)
+    # Запускаем бота (используем polling)
     logger.info("Бот запущен и готов к работе!")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
