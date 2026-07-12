@@ -101,6 +101,17 @@ async def handle_teacher_reply(update: Update, context: ContextTypes.DEFAULT_TYP
         logger.error(f"Ошибка при отправке ответа ученику: {e}")
         await message.reply_text("❌ Не удалось отправить ответ ученику.")
 
+async def log_group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Логирует все сообщения из группы"""
+    if update.message.chat.type in ["group", "supergroup"]:
+        logger.info(f"Получено сообщение из группы: {update.message.text} (от {update.message.from_user.full_name})")
+
+# Добавьте обработчик в main():
+application.add_handler(MessageHandler(
+    filters.Chat(chat_id=GROUP_ID) & filters.TEXT,
+    log_group_messages
+))
+
 def main():
     """Запуск бота"""
     # Создаём приложение
