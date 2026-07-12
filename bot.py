@@ -1,113 +1,86 @@
 import logging
-import json
-import os
-from telegram import Update
+from datetime import datetime
+from telegram import Update, BotCommand
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.constants import ParseMode
 
-# --- НАСТРОЙКИ ---
+logging.basicConfig(level=logging.INFO)
+
+# ================== НАСТРОЙКИ ==================
 TOKEN = "8861477655:AAFOTTHikYcHWwP19p790B03363Oz6O72H8"
-GROUP_ID = -1003721858380
-# -----------------
+GROUP_CHAT_ID = -1003721858380      # ←←← ИЗМЕНИТЬ
+# ===============================================
 
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.DEBUG  # DEBUG для максимальной отладки
-)
-logger = logging.getLogger(__name__)
-
-MAPPING_FILE = "user_topic_map.json"
-user_topic_map = {}
-
-def load_mapping():
-    global user_topic_map
-    if os.path.exists(MAPPING_FILE):
-        try:
-            with open(MAPPING_FILE, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                user_topic_map = {int(k): v for k, v in data.items()}
-            logger.info(f"Загружено {len(user_topic_map)} соответствий.")
-        except Exception as e:
-            logger.error(f"Ошибка загрузки маппинга: {e}")
-    else:
-        logger.info("Файл маппинга не найден.")
-
-def save_mapping():
-    try:
-        with open(MAPPING_FILE, 'w', encoding='utf-8') as f:
-            json.dump(user_topic_map, f, ensure_ascii=False, indent=2)
-        logger.info("Маппинг сохранён.")
-    except Exception as e:
-        logger.error(f"Ошибка сохранения: {e}")
+# Хранилище: student_id → topic_id
+student_to_topic = {}
+topic_to_student = {}
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(f"Привет, {update.effective_user.first_name}! 👋\nСообщения будут пересылаться учителям.")
+    await update.message.reply_text(
+        "👋 Привет! Я буду пересылать твои сообщения учителям.\n"
+        "Просто пиши сюда — всё дойдёт."
+    )
 
-async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_chat.type != "private":
-        return
-    # ... (ваш код создания темы и отправки в группу — оставьте как есть)
-    # (я не менял эту часть)
+async def handle_student_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    message = update.message
+    
+    if user.id not in student_to_topic:
+        # Создаём новую тему
+        topic = await context.bot.create_forum_topic(
+            chat_id=GROUP_CHAT_ID,
+            name=f"{user.full_name} ({user.id})"
+        )
+        student_to_topic[user.id] = topic.message_thread_id
+        topic_to_student[topic.message_thread_id] = user.id
+        
+        await message.reply_text("✅ Тема создана. Сообщение отправлено учителям.")
+
+    thread_id = student_to_topic[user.id]
+    
+    # Пересылаем сообщение в тему
+    await message.forward(
+        chat_id=GROUP_CHAT_ID,
+        message_thread_id=thread_id
+    )
 
 async def handle_teacher_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обрабатывает ответы учителя в темах"""
     message = update.message
-    if not message or message.chat.id != GROUP_ID:
+    if not message or not message.message_thread_id:
         return
-
-    logger.debug(f"Получено сообщение в группе. Thread ID: {message.message_thread_id}, Reply to: {message.reply_to_message}")
-
-    topic_id = message.message_thread_id
-    user_id = None
-    for uid, tid in user_topic_map.items():
-        if tid == topic_id:
-            user_id = uid
-            break
-
-    if user_id is None:
-        logger.warning(f"Не найден пользователь для темы {topic_id}")
-        return
-
+    
+    thread_id = message.message_thread_id
+    student_id = topic_to_student.get(thread_id)
+    
+    if not student_id:
+        return  # Неизвестная тема
+    
+    # Пересылаем ответ ученику
     try:
-        await context.bot.send_message(
-            chat_id=user_id,
-            text=f"👩‍🏫 Ответ от учителя:\n\n{message.text}"
-        )
-        await message.reply_text("✅ Ответ отправлен.")
+        await message.forward(chat_id=student_id)
     except Exception as e:
-        logger.error(f"Ошибка отправки ответа: {e}")
-
-async def log_all_updates(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Максимально подробный лог ВСЕХ обновлений"""
-    if update.message:
-        msg = update.message
-        logger.info(
-            f"UPDATE | Тип чата: {msg.chat.type} | Chat ID: {msg.chat.id} | "
-            f"Thread: {getattr(msg, 'message_thread_id', None)} | "
-            f"От: {msg.from_user.full_name} | Текст: {msg.text} | "
-            f"Reply to: {getattr(msg.reply_to_message, 'message_id', None) if msg.reply_to_message else None}"
-        )
+        logging.error(f"Не удалось переслать учителя ученику {student_id}: {e}")
 
 def main():
-    load_mapping()
-    application = Application.builder().token(TOKEN).build()
+    app = Application.builder().token(TOKEN).build()
 
-    application.add_handler(CommandHandler("start", start))
-
-    # Важно: конкретные обработчики — первыми
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, handle_user_message))
+    app.add_handler(CommandHandler("start", start))
     
-    application.add_handler(MessageHandler(
-        filters.Chat(chat_id=GROUP_ID) & filters.TEXT,  # Шире, чем только REPLY
+    # Сообщения от учеников в личку
+    app.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND & filters.CHAT_TYPE.PRIVATE,
+        handle_student_message
+    ))
+    
+    # Ответы учителей в группе (в темах)
+    app.add_handler(MessageHandler(
+        filters.CHAT_TYPE.SUPERGROUP,
         handle_teacher_reply
     ))
 
-    # Debug — последним, чтобы не перехватывал
-    application.add_handler(MessageHandler(filters.ALL, log_all_updates))
+    print("Бот запущен...")
+    app.run_polling()
 
-    logger.info("Бот запущен...")
-    application.run_polling(
-        allowed_updates=Update.ALL_TYPES,
-        drop_pending_updates=True  # Полезно при перезапуске
-    )
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
