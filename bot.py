@@ -17,8 +17,7 @@ topic_to_student = {}
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "👋 Привет! Напиши мне любое сообщение — "
-        "оно будет отправлено учителям в отдельной теме."
+        "👋 Привет! Напиши мне сообщение — оно будет отправлено учителям."
     )
 
 async def handle_student_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -27,19 +26,21 @@ async def handle_student_message(update: Update, context: ContextTypes.DEFAULT_T
 
     if user.id not in student_to_topic:
         try:
+            # Название темы без ссылки на пользователя
+            topic_name = f"Ученик {user.full_name}"
             topic = await context.bot.create_forum_topic(
                 chat_id=GROUP_CHAT_ID,
-                name=f"👤 {user.full_name}"
+                name=topic_name
             )
             thread_id = topic.message_thread_id
             
             student_to_topic[user.id] = thread_id
             topic_to_student[thread_id] = user.id
             
-            await update.message.reply_text("✅ Тема создана. Сообщение отправлено учителям.")
+            await update.message.reply_text("✅ Сообщение отправлено учителям.")
         except Exception as e:
             logging.error(f"Ошибка создания темы: {e}")
-            await update.message.reply_text("❌ Не удалось создать тему.")
+            await update.message.reply_text("❌ Ошибка создания темы.")
             return
 
     thread_id = student_to_topic[user.id]
@@ -49,9 +50,10 @@ async def handle_student_message(update: Update, context: ContextTypes.DEFAULT_T
             message_thread_id=thread_id
         )
     except Exception as e:
-        logging.error(f"Ошибка пересылки: {e}")
+        logging.error(f"Ошибка пересылки ученика: {e}")
 
 async def handle_teacher_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Пересылает ответ учителя ученику"""
     message = update.message
     if not message or not message.message_thread_id:
         return
@@ -61,23 +63,22 @@ async def handle_teacher_reply(update: Update, context: ContextTypes.DEFAULT_TYP
 
     if student_id:
         try:
+            # Пересылаем без лишней информации
             await message.forward(chat_id=student_id)
-            logging.info(f"Ответ переслан ученику {student_id}")
+            logging.info(f"Ответ учителя → ученику {student_id}")
         except Exception as e:
-            logging.error(f"Ошибка отправки ученику: {e}")
+            logging.error(f"Не удалось отправить ответ ученику {student_id}: {e}")
 
 def main():
     application = Application.builder().token(TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
     
-    # Сообщения от учеников в личку
     application.add_handler(MessageHandler(
         filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE,
         handle_student_message
     ))
     
-    # Ответы учителей в группе
     application.add_handler(MessageHandler(
         filters.ChatType.SUPERGROUP,
         handle_teacher_reply
