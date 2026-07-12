@@ -9,10 +9,9 @@ logging.basicConfig(
 
 # ================== НАСТРОЙКИ ==================
 TOKEN = "8861477655:AAFOTTHikYcHWwP19p790B03363Oz6O72H8"
-GROUP_CHAT_ID = -1003721858380   # ← Ваш ID группы
+GROUP_CHAT_ID = -1003721858380
 # ===============================================
 
-# Хранилища (соответствие ученик ↔ тема)
 student_to_topic = {}
 topic_to_student = {}
 
@@ -26,7 +25,6 @@ async def handle_student_message(update: Update, context: ContextTypes.DEFAULT_T
     user = update.effective_user
     message = update.message
 
-    # Создаём новую тему для ученика, если её ещё нет
     if user.id not in student_to_topic:
         try:
             topic = await context.bot.create_forum_topic(
@@ -41,10 +39,9 @@ async def handle_student_message(update: Update, context: ContextTypes.DEFAULT_T
             await update.message.reply_text("✅ Тема создана. Сообщение отправлено учителям.")
         except Exception as e:
             logging.error(f"Ошибка создания темы: {e}")
-            await update.message.reply_text("❌ Не удалось создать тему. Проверьте права бота.")
+            await update.message.reply_text("❌ Не удалось создать тему.")
             return
 
-    # Пересылаем сообщение в тему
     thread_id = student_to_topic[user.id]
     try:
         await message.forward(
@@ -52,10 +49,9 @@ async def handle_student_message(update: Update, context: ContextTypes.DEFAULT_T
             message_thread_id=thread_id
         )
     except Exception as e:
-        logging.error(f"Ошибка пересылки сообщения: {e}")
+        logging.error(f"Ошибка пересылки: {e}")
 
 async def handle_teacher_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Пересылает ответ учителя обратно ученику"""
     message = update.message
     if not message or not message.message_thread_id:
         return
@@ -66,9 +62,9 @@ async def handle_teacher_reply(update: Update, context: ContextTypes.DEFAULT_TYP
     if student_id:
         try:
             await message.forward(chat_id=student_id)
-            logging.info(f"Ответ учителя переслан ученику {student_id}")
+            logging.info(f"Ответ переслан ученику {student_id}")
         except Exception as e:
-            logging.error(f"Ошибка отправки ответа ученику {student_id}: {e}")
+            logging.error(f"Ошибка отправки ученику: {e}")
 
 def main():
     application = Application.builder().token(TOKEN).build()
@@ -77,17 +73,17 @@ def main():
     
     # Сообщения от учеников в личку
     application.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND & filters.CHAT_TYPE.PRIVATE,
+        filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE,
         handle_student_message
     ))
     
-    # Ответы учителей в супергруппе
+    # Ответы учителей в группе
     application.add_handler(MessageHandler(
-        filters.CHAT_TYPE.SUPERGROUP,
+        filters.ChatType.SUPERGROUP,
         handle_teacher_reply
     ))
 
-    print("🤖 Бот запущен и готов к работе...")
+    print("🤖 Бот запущен...")
     application.run_polling()
 
 if __name__ == '__main__':
