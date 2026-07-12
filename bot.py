@@ -4,7 +4,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 # --- НАСТРОЙКИ (Замените на свои!) ---
-TOKEN = 8639656890:AAHOfXP_GA7Ve7wQD1WNjQY3pV_U-4FhMD0  # Вставьте сюда ваш токен
+TOKEN = "8639656890:AAHOfXP_GA7Ve7wQD1WNjQY3pV_U-4FhMD0"  # Вставьте сюда ваш токен
 GROUP_ID = -1003721858380  # Вставьте ID вашей группы (это отрицательное число!)
 # -------------------------------------
 
