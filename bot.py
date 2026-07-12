@@ -5,8 +5,8 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 # --- НАСТРОЙКИ (Замените на свои!) ---
-TOKEN = "ВАШ_ТОКЕН"                # Вставьте сюда ваш токен от @BotFather
-GROUP_ID = -1001234567890          # Вставьте ID вашей группы (отрицательное число!)
+TOKEN = "8639656890:AAHOfXP_GA7Ve7wQD1WNjQY3pV_U-4FhMD0"                # Вставьте сюда ваш токен от @BotFather
+GROUP_ID = -1003721858380          # Вставьте ID вашей группы (отрицательное число!)
 # -------------------------------------
 
 logging.basicConfig(
