@@ -6,7 +6,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 
 # --- НАСТРОЙКИ (Замените на свои!) ---
 TOKEN = "8950928509:AAGfkJMlNBopWzNQzJ7Gn7SIkcbwMZ_Nvd0"                # Вставьте сюда ваш токен от @BotFather
-GROUP_ID = -1003721858380         # Вставьте ID вашей группы (отрицательное число!)
+GROUP_ID = -1003721858380          # Вставьте ID вашей группы (отрицательное число!)
 # -------------------------------------
 
 logging.basicConfig(
@@ -17,8 +17,6 @@ logger = logging.getLogger(__name__)
 
 # Файл для хранения маппинга
 MAPPING_FILE = "user_topic_map.json"
-
-# Глобальный словарь
 user_topic_map = {}
 
 def load_mapping():
@@ -28,7 +26,7 @@ def load_mapping():
             with open(MAPPING_FILE, 'r', encoding='utf-8') as f:
                 data = json.load(f)
                 user_topic_map = {int(k): v for k, v in data.items()}
-            logger.info(f"Загружено {len(user_topic_map)} соответствий из файла.")
+            logger.info(f"Загружено {len(user_topic_map)} соответствий.")
         except Exception as e:
             logger.error(f"Ошибка загрузки маппинга: {e}")
             user_topic_map = {}
@@ -117,12 +115,16 @@ async def handle_teacher_reply(update: Update, context: ContextTypes.DEFAULT_TYP
         logger.error(f"Ошибка при отправке ответа ученику: {e}")
         await message.reply_text("❌ Не удалось отправить ответ ученику.")
 
-# ========== ОТЛАДОЧНЫЙ ОБРАБОТЧИК ==========
+# ========== ОТЛАДОЧНЫЙ ОБРАБОТЧИК (без фильтра по chat_id) ==========
 async def log_all_group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Логирует все текстовые сообщения из группы"""
-    if update.message and update.message.chat.type in ["group", "supergroup"]:
-        logger.info(f"ГРУППА: сообщение от {update.message.from_user.full_name}: {update.message.text}")
-# ==========================================
+    """Логирует все текстовые сообщения из любых чатов (личные и группы)"""
+    if update.message and update.message.text:
+        chat_type = update.message.chat.type
+        chat_id = update.message.chat.id
+        user_name = update.message.from_user.full_name
+        text = update.message.text
+        logger.info(f"СООБЩЕНИЕ: тип={chat_type}, chat_id={chat_id}, от={user_name}, текст={text}")
+# ======================================================================
 
 def main():
     load_mapping()
@@ -136,12 +138,12 @@ def main():
         handle_teacher_reply
     ))
 
-    # ===== ДОБАВЛЯЕМ ОТЛАДОЧНЫЙ ОБРАБОТЧИК =====
+    # ===== ОТЛАДОЧНЫЙ ОБРАБОТЧИК (без фильтра) =====
     application.add_handler(MessageHandler(
-        filters.Chat(chat_id=GROUP_ID) & filters.TEXT,
+        filters.TEXT,  # <--- здесь нет фильтра по чату!
         log_all_group_messages
     ))
-    # ==========================================
+    # ================================================
 
     logger.info("Бот запущен и готов к работе!")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
