@@ -5,8 +5,8 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 # --- НАСТРОЙКИ (Замените на свои!) ---
-TOKEN = "8639656890:AAHOfXP_GA7Ve7wQD1WNjQY3pV_U-4FhMD0"                # Вставьте сюда ваш токен от @BotFather
-GROUP_ID = -1003721858380          # Вставьте ID вашей группы (отрицательное число!)
+TOKEN = "ВАШ_ТОКЕН"                # Вставьте сюда ваш токен от @BotFather
+GROUP_ID = -1001234567890          # Вставьте ID вашей группы (отрицательное число!)
 # -------------------------------------
 
 logging.basicConfig(
@@ -22,13 +22,11 @@ MAPPING_FILE = "user_topic_map.json"
 user_topic_map = {}
 
 def load_mapping():
-    """Загружает маппинг из файла при старте"""
     global user_topic_map
     if os.path.exists(MAPPING_FILE):
         try:
             with open(MAPPING_FILE, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-                # Преобразуем ключи обратно в int (JSON сохраняет их как строки)
                 user_topic_map = {int(k): v for k, v in data.items()}
             logger.info(f"Загружено {len(user_topic_map)} соответствий из файла.")
         except Exception as e:
@@ -38,7 +36,6 @@ def load_mapping():
         logger.info("Файл маппинга не найден, начинаем с пустого словаря.")
 
 def save_mapping():
-    """Сохраняет текущий маппинг в файл"""
     try:
         with open(MAPPING_FILE, 'w', encoding='utf-8') as f:
             json.dump(user_topic_map, f, ensure_ascii=False, indent=2)
@@ -73,7 +70,7 @@ async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE
             )
             topic_id = topic.message_thread_id
             user_topic_map[user.id] = topic_id
-            save_mapping()  # Сохраняем после создания
+            save_mapping()
             logger.info(f"Создана новая тема для {user.full_name} (ID: {topic_id})")
         except Exception as e:
             logger.error(f"Не удалось создать тему: {e}")
@@ -120,8 +117,14 @@ async def handle_teacher_reply(update: Update, context: ContextTypes.DEFAULT_TYP
         logger.error(f"Ошибка при отправке ответа ученику: {e}")
         await message.reply_text("❌ Не удалось отправить ответ ученику.")
 
+# ========== ОТЛАДОЧНЫЙ ОБРАБОТЧИК ==========
+async def log_all_group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Логирует все текстовые сообщения из группы"""
+    if update.message and update.message.chat.type in ["group", "supergroup"]:
+        logger.info(f"ГРУППА: сообщение от {update.message.from_user.full_name}: {update.message.text}")
+# ==========================================
+
 def main():
-    # Загружаем сохранённый маппинг при старте
     load_mapping()
 
     application = Application.builder().token(TOKEN).build()
@@ -132,6 +135,13 @@ def main():
         filters.REPLY & filters.Chat(chat_id=GROUP_ID),
         handle_teacher_reply
     ))
+
+    # ===== ДОБАВЛЯЕМ ОТЛАДОЧНЫЙ ОБРАБОТЧИК =====
+    application.add_handler(MessageHandler(
+        filters.Chat(chat_id=GROUP_ID) & filters.TEXT,
+        log_all_group_messages
+    ))
+    # ==========================================
 
     logger.info("Бот запущен и готов к работе!")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
