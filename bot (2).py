@@ -423,6 +423,12 @@ async def handle_group_reply(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if member["user_id"] == teacher_id:
             continue
         try:
+            # 1. Отправляем подпись
+            await context.bot.send_message(
+                chat_id=member["user_id"],
+                text="📩 Преподаватель:"
+            )
+            # 2. Копируем само сообщение учителя
             await context.bot.copy_message(
                 chat_id=member["user_id"],
                 from_chat_id=message.chat.id,
