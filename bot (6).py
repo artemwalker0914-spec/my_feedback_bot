@@ -384,7 +384,7 @@ async def handle_group_reply(update: Update, context: ContextTypes.DEFAULT_TYPE)
             if message.text:
                 await context.bot.send_message(
                     chat_id=member["user_id"],
-                    text=f"*📩 Преподаватель*\n\n{message.text}",
+                    text=f"*📩 Преподаватель:*\n{message.text}",
                     parse_mode="Markdown"
                 )
             else:
