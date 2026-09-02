@@ -1,15 +1,5 @@
 """
 Слой хранения данных бота «ЮНИВЁРСУМ» на SQLite.
-
-Почему SQLite, а не JSON:
-- атомарные записи (не потеряем данные при падении бота посреди записи файла);
-- позволяет хранить несколько участников на одну комнату и полную историю
-  сопоставления «сообщение в теме -> кто его написал» (нужно для того,
-  чтобы Reply от учителя уходил конкретному автору, а не всем участникам).
-
-Файл базы данных должен лежать на ПОСТОЯННОМ томе хостинга (см. README.md) —
-если Bothost сбрасывает файловую систему контейнера при каждом деплое,
-файл .db нужно класть в volume/директорию, которая переживает перезапуск.
 """
 
 import sqlite3
@@ -37,8 +27,6 @@ ROLE_NAMES_RU = {
 class Storage:
     def __init__(self, db_path: str):
         self.db_path = db_path
-        # check_same_thread=False: PTB вызывает нас из одного asyncio-потока,
-        # но чтобы не словить случайных проблем при разных event loop'ах — отключаем проверку.
         self._conn = sqlite3.connect(db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._init_schema()
@@ -109,6 +97,21 @@ class Storage:
             cur.execute("SELECT * FROM users WHERE room_id = ?", (room_id,))
             return cur.fetchall()
 
+    def update_thread_id(self, room_id: int, new_thread_id: int):
+        with closing(self._conn.cursor()) as cur:
+            cur.execute("UPDATE rooms SET thread_id = ? WHERE room_id = ?", (new_thread_id, room_id))
+            self._conn.commit()
+
+    def clear_user_room(self, user_id: int):
+        with closing(self._conn.cursor()) as cur:
+            cur.execute("UPDATE users SET room_id = NULL WHERE user_id = ?", (user_id,))
+            self._conn.commit()
+
+    def clear_pending_invite(self, invite_id: int):
+        with closing(self._conn.cursor()) as cur:
+            cur.execute("DELETE FROM pending_invites WHERE invite_id = ?", (invite_id,))
+            self._conn.commit()
+
     # ---------------- users ----------------
 
     def get_user(self, user_id: int) -> Optional[sqlite3.Row]:
@@ -156,10 +159,6 @@ class Storage:
             self._conn.commit()
 
     # ---------------- pending invites ----------------
-    # Нужны, потому что бот не может написать пользователю, который ни разу
-    # не запускал бота (ограничение Telegram Bot API). Поэтому при /add_parent
-    # мы либо сразу добавляем человека (если он уже писал боту), либо
-    # откладываем приглашение до его /start.
 
     def add_pending_invite(
         self,
@@ -178,7 +177,6 @@ class Storage:
             self._conn.commit()
 
     def pop_pending_invite_for(self, user_id: int, username: Optional[str]) -> Optional[sqlite3.Row]:
-        """Ищет и удаляет приглашение для данного пользователя (по ID или username)."""
         with closing(self._conn.cursor()) as cur:
             cur.execute("SELECT * FROM pending_invites WHERE target_user_id = ?", (user_id,))
             row = cur.fetchone()
