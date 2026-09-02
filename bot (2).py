@@ -291,7 +291,7 @@ async def broadcast_to_room(context, room_id: int, sender_id: int, text: str, ro
         try:
             await context.bot.send_message(
                 chat_id=member["user_id"],
-                text=f"*📩 {role_ru}*\n\n{text}",
+                text=f"*📩 {role_ru}:*\n{text}",
                 parse_mode="Markdown"
             )
         except Exception as e:
@@ -427,7 +427,7 @@ async def handle_group_reply(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 # Текстовое сообщение – отправляем с подписью на отдельной строке
                 await context.bot.send_message(
                     chat_id=member["user_id"],
-                    text=f"*📩 Преподаватель*\n\n{message.text}",
+                    text=f"*📩 Преподаватель:*\n{message.text}",
                     parse_mode="Markdown"
                 )
             else:
