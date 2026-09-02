@@ -282,7 +282,7 @@ async def notify_room(context, room_id: int, exclude_user_id: int, text: str):
 # -------------------- рассылка всем участникам комнаты --------------------
 
 async def broadcast_to_room(context, room_id: int, sender_id: int, text: str, role: str):
-    """Отправляет сообщение всем участникам комнаты, кроме отправителя, с пометкой роли."""
+    """Отправляет сообщение всем участникам комнаты, кроме отправителя, с жирной подписью роли на отдельной строке."""
     members = storage.get_room_members(room_id)
     role_ru = ROLE_NAMES_RU.get(role, role).capitalize()
     for member in members:
@@ -291,11 +291,11 @@ async def broadcast_to_room(context, room_id: int, sender_id: int, text: str, ro
         try:
             await context.bot.send_message(
                 chat_id=member["user_id"],
-                text=f"📩 {role_ru}:\n{text}"
+                text=f"*📩 {role_ru}*\n\n{text}",
+                parse_mode="Markdown"
             )
         except Exception as e:
             logger.warning(f"Не удалось отправить сообщение участнику {member['user_id']}: {e}")
-
 
 # -------------------- безопасная отправка в тему (восстановление) --------------------
 
@@ -423,17 +423,19 @@ async def handle_group_reply(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if member["user_id"] == teacher_id:
             continue
         try:
-            # Если сообщение текстовое – отправляем одним сообщением с подписью
             if message.text:
+                # Текстовое сообщение – отправляем с подписью на отдельной строке
                 await context.bot.send_message(
                     chat_id=member["user_id"],
-                    text=f"📩 Преподаватель:\n{message.text}"
+                    text=f"*📩 Преподаватель*\n\n{message.text}",
+                    parse_mode="Markdown"
                 )
             else:
-                # Для сообщений с медиа (фото, видео, файлы) – сначала подпись, потом копия
+                # Медиа-сообщение – сначала подпись, потом копия медиа
                 await context.bot.send_message(
                     chat_id=member["user_id"],
-                    text="📩 Преподаватель:"
+                    text="*📩 Преподаватель*",
+                    parse_mode="Markdown"
                 )
                 await context.bot.copy_message(
                     chat_id=member["user_id"],
