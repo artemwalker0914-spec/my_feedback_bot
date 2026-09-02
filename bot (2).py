@@ -349,55 +349,51 @@ async def copy_to_thread_safe(context, from_chat_id, message_id, chat_id, thread
 
 # -------------------- пересылка: пользователь -> тема + рассылка всем участникам --------------------
 
-async def handle_private_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    message = update.message
+# 1. Отправляем в группу учителей (с восстановлением, если тема удалена)
+try:
+    # Проверяем тему и при необходимости восстанавливаем
+    new_thread_id = await send_to_thread_safe(
+        context,
+        GROUP_CHAT_ID,
+        thread_id,
+        "",  # пустая заглушка
+        user,
+        row["room_id"],
+    )
+    thread_id = new_thread_id
+except Exception as e:
+    logger.error(f"Не удалось проверить тему: {e}")
+    await message.reply_text("⚠️ Не удалось отправить сообщение. Попробуйте ещё раз.")
+    return
 
-    row = storage.get_user(user.id)
-    if not row or not row["room_id"]:
-        await message.reply_text("Сначала отправьте /start, чтобы создать или найти вашу комнату.")
-        return
-
-    room = storage.get_room(row["room_id"])
-    if room is None:
-        storage.clear_user_room(user.id)
-        await message.reply_text("Ваша комната была удалена. Отправьте /start, чтобы создать новую.")
-        return
-
-    thread_id = room["thread_id"]
-    role = row["role"] or ROLE_STUDENT
-
-    # 1. Отправляем в группу учителей (с восстановлением, если тема удалена)
-    try:
-        new_thread_id = await send_to_thread_safe(
-            context,
-            GROUP_CHAT_ID,
-            thread_id,
-            f"📩 Сообщение от {role_label(role)}:",
-            user,
-            row["room_id"],
+try:
+    if message.text:
+        # Текстовое сообщение – отправляем одним сообщением с ролью
+        sent_msg = await context.bot.send_message(
+            chat_id=GROUP_CHAT_ID,
+            message_thread_id=thread_id,
+            text=f"📩 {role_label(role)}:\n{message.text}",
         )
-        thread_id = new_thread_id
-    except Exception as e:
-        logger.error(f"Не удалось отправить заголовок: {e}")
-        await message.reply_text("⚠️ Не удалось отправить сообщение. Попробуйте ещё раз.")
-        return
-
-    try:
-        copied_id = await copy_to_thread_safe(
-            context,
-            message.chat.id,
-            message.message_id,
-            GROUP_CHAT_ID,
-            thread_id,
-            user,
-            row["room_id"],
+        # Сохраняем связь: это сообщение отправил данный пользователь
+        storage.save_message_map(sent_msg.message_id, thread_id, user.id)
+    else:
+        # Медиа-сообщение – сначала подпись, потом копия
+        await context.bot.send_message(
+            chat_id=GROUP_CHAT_ID,
+            message_thread_id=thread_id,
+            text=f"📩 {role_label(role)}:",
         )
-        storage.save_message_map(copied_id, thread_id, user.id)
-    except Exception as e:
-        logger.error(f"Ошибка copy_message: {e}")
-        await message.reply_text("⚠️ Не удалось отправить сообщение. Попробуйте ещё раз.")
-        return
+        copied = await context.bot.copy_message(
+            chat_id=GROUP_CHAT_ID,
+            from_chat_id=message.chat.id,
+            message_id=message.message_id,
+            message_thread_id=thread_id,
+        )
+        storage.save_message_map(copied.message_id, thread_id, user.id)
+except Exception as e:
+    logger.error(f"Ошибка отправки в группу: {e}")
+    await message.reply_text("⚠️ Не удалось отправить сообщение. Попробуйте ещё раз.")
+    return
 
     # 2. Рассылаем всем участникам комнаты (кроме отправителя) с пометкой роли
     await broadcast_to_room(context, row["room_id"], user.id, message.text, role)
