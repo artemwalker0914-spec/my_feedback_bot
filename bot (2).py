@@ -423,20 +423,25 @@ async def handle_group_reply(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if member["user_id"] == teacher_id:
             continue
         try:
-            # 1. Отправляем подпись
-            await context.bot.send_message(
-                chat_id=member["user_id"],
-                text="📩 Преподаватель:"
-            )
-            # 2. Копируем само сообщение учителя
-            await context.bot.copy_message(
-                chat_id=member["user_id"],
-                from_chat_id=message.chat.id,
-                message_id=message.message_id,
-            )
+            # Если сообщение текстовое – отправляем одним сообщением с подписью
+            if message.text:
+                await context.bot.send_message(
+                    chat_id=member["user_id"],
+                    text=f"📩 Преподаватель:\n{message.text}"
+                )
+            else:
+                # Для сообщений с медиа (фото, видео, файлы) – сначала подпись, потом копия
+                await context.bot.send_message(
+                    chat_id=member["user_id"],
+                    text="📩 Преподаватель:"
+                )
+                await context.bot.copy_message(
+                    chat_id=member["user_id"],
+                    from_chat_id=message.chat.id,
+                    message_id=message.message_id,
+                )
         except Exception as e:
             logger.warning(f"Не удалось переслать ответ участнику {member['user_id']}: {e}")
-
 
 def main():
     application = Application.builder().token(TOKEN).build()
