@@ -307,9 +307,9 @@ async def broadcast_copy_to_room(
     message_id: int,
     text_content: str = None,
 ):
-    """Рассылает сообщение всем участникам комнаты, кроме exclude_user_id.
-    Для текстовых сообщений — одним сообщением с жирной ролью и текстом.
-    Для медиа — подпись отдельно, потом копия медиа."""
+    """Рассылает сообщение всем участникам комнаты, кроме отправителя.
+    Для текстовых — одним сообщением с жирной ролью и текстом.
+    Для медиа — подпись отдельно, затем копия."""
     members = storage.get_room_members(room_id)
     role_display = ROLE_NAMES_RU.get(role, role).capitalize()
 
@@ -318,14 +318,12 @@ async def broadcast_copy_to_room(
             continue
         try:
             if text_content:
-                # Текстовое сообщение – отправляем одним сообщением
                 await context.bot.send_message(
                     chat_id=member["user_id"],
                     text=f"*{role_display}*\n{text_content}",
                     parse_mode="Markdown"
                 )
             else:
-                # Медиа без текста – подпись отдельно, потом копия медиа
                 await context.bot.send_message(
                     chat_id=member["user_id"],
                     text=f"*{role_display}*",
@@ -339,16 +337,13 @@ async def broadcast_copy_to_room(
         except Exception as e:
             logger.warning(f"Не удалось отправить сообщение участнику {member['user_id']}: {e}")
 
-
 # -------------------- пересылка: пользователь -> тема --------------------
 async def _send_to_topic(context, thread_id: int, role: str, message):
     """Отправляет сообщение в тему группы учителей.
-    Для текстовых сообщений — одним сообщением с ролью, выделенной жирным.
-    Для медиа — сначала подпись, потом копия медиа."""
-    # Если есть текст (или подпись у медиа), отправляем вместе
+    Для текстовых — одним сообщением с жирной ролью.
+    Для медиа — подпись отдельно, затем копия."""
     text_content = message.text or message.caption
     if text_content:
-        # Формируем одно сообщение: жирная роль, затем текст
         role_display = ROLE_NAMES_RU.get(role, role).capitalize()
         await context.bot.send_message(
             chat_id=GROUP_CHAT_ID,
@@ -356,12 +351,9 @@ async def _send_to_topic(context, thread_id: int, role: str, message):
             text=f"*{role_display}*\n{text_content}",
             parse_mode="Markdown"
         )
-        # Для медиа с текстом – копировать само медиа не нужно, т.к. текст уже отправлен.
-        # Если нужно сохранить медиа, можно дополнительно скопировать, но тогда будет дубль.
-        # Поэтому возвращаем "пустое" сообщение для map? Можно вернуть None.
         return None
     else:
-        # Только медиа (фото, видео, файл) – отправляем подпись и копируем медиа
+        # Только медиа
         await context.bot.send_message(
             chat_id=GROUP_CHAT_ID,
             message_thread_id=thread_id,
@@ -373,7 +365,7 @@ async def _send_to_topic(context, thread_id: int, role: str, message):
             from_chat_id=message.chat.id,
             message_id=message.message_id,
             message_thread_id=thread_id,
-        )    
+        )
 
 
 async def handle_private_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -393,48 +385,44 @@ async def handle_private_message(update: Update, context: ContextTypes.DEFAULT_T
 
     thread_id = room["thread_id"]
     role = row["role"] or ROLE_STUDENT
-    label = f"📩 Сообщение от {role_label(role)}:"
 
     try:
         copied = await _send_to_topic(context, thread_id, role, message)
-        # Сейчас ответы рассылаются всем участникам комнаты, а не только автору,
-        # так что этот лог не используется для маршрутизации — но пригодится,
-        # если позже понадобится узнать, кто написал конкретное сообщение в теме.
-        storage.save_message_map(copied.message_id, thread_id, user.id)
+        if copied:
+            storage.save_message_map(copied.message_id, thread_id, user.id)
     except Exception as e:
-        if "message thread not found" not in str(e).lower():
+        if "message thread not found" in str(e).lower():
+            logger.warning(f"Тема {thread_id} не найдена, пересоздаём для комнаты {room['room_id']}")
+            try:
+                new_topic = await context.bot.create_forum_topic(
+                    chat_id=GROUP_CHAT_ID,
+                    name=f"{room['name']} (восстановлена)",
+                )
+                thread_id = new_topic.message_thread_id
+                storage.update_thread_id(room["room_id"], thread_id)
+
+                copied = await _send_to_topic(context, thread_id, role, message)
+                if copied:
+                    storage.save_message_map(copied.message_id, thread_id, user.id)
+            except Exception as e2:
+                logger.error(f"Не удалось восстановить тему для комнаты {room['room_id']}: {e2}")
+                await message.reply_text("⚠️ Не удалось отправить сообщение. Попробуйте ещё раз.")
+                return
+        else:
             logger.error(f"Ошибка отправки в тему {thread_id}: {e}")
             await message.reply_text("⚠️ Не удалось отправить сообщение. Попробуйте ещё раз.")
             return
 
-        # Тема была удалена в группе руками — пересоздаём её для этой же комнаты
-        # и обновляем thread_id, чтобы бот больше не "терял" эту комнату.
-        logger.warning(f"Тема {thread_id} не найдена, пересоздаём для комнаты {room['room_id']}")
-        try:
-            new_topic = await context.bot.create_forum_topic(
-                chat_id=GROUP_CHAT_ID,
-                name=f"{room['name']} (восстановлена)",
-            )
-            thread_id = new_topic.message_thread_id
-            storage.update_thread_id(room["room_id"], thread_id)
-
-       copied = await _send_to_topic(context, thread_id, role, message)
-# Если _send_to_topic вернула None (текстовое сообщение), то не сохраняем map
-if copied:
-    storage.save_message_map(copied.message_id, thread_id, user.id)
-
-# Рассылка всем участникам (текст берём из message.text или message.caption)
-text_content = message.text or message.caption
-await broadcast_copy_to_room(
-    context,
-    room["room_id"],
-    exclude_user_id=user.id,
-    role=role,
-    from_chat_id=message.chat.id,
-    message_id=message.message_id,
-    text_content=text_content,
-)
-
+    text_content = message.text or message.caption
+    await broadcast_copy_to_room(
+        context,
+        room["room_id"],
+        exclude_user_id=user.id,
+        role=role,
+        from_chat_id=message.chat.id,
+        message_id=message.message_id,
+        text_content=text_content,
+    )
 
 # -------------------- пересылка: сообщение в теме -> всем участникам комнаты --------------------
 async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
