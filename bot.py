@@ -325,19 +325,38 @@ async def broadcast_copy_to_room(
 
 # -------------------- пересылка: пользователь -> тема --------------------
 async def _send_to_topic(context, thread_id: int, role: str, message):
-    """Отправляет заголовок с ролью и копию сообщения в указанную тему.
-    Возвращает объект скопированного сообщения (для message_map)."""
-    await context.bot.send_message(
-        chat_id=GROUP_CHAT_ID,
-        message_thread_id=thread_id,
-        text=f"📩 Сообщение от {role_label(role)}:",
-    )
-    return await context.bot.copy_message(
-        chat_id=GROUP_CHAT_ID,
-        from_chat_id=message.chat.id,
-        message_id=message.message_id,
-        message_thread_id=thread_id,
-    )
+    """Отправляет сообщение в тему группы учителей.
+    Для текстовых сообщений — одним сообщением с ролью, выделенной жирным.
+    Для медиа — сначала подпись, потом копия медиа."""
+    # Если есть текст (или подпись у медиа), отправляем вместе
+    text_content = message.text or message.caption
+    if text_content:
+        # Формируем одно сообщение: жирная роль, затем текст
+        role_display = ROLE_NAMES_RU.get(role, role).capitalize()
+        await context.bot.send_message(
+            chat_id=GROUP_CHAT_ID,
+            message_thread_id=thread_id,
+            text=f"*{role_display}*\n{text_content}",
+            parse_mode="Markdown"
+        )
+        # Для медиа с текстом – копировать само медиа не нужно, т.к. текст уже отправлен.
+        # Если нужно сохранить медиа, можно дополнительно скопировать, но тогда будет дубль.
+        # Поэтому возвращаем "пустое" сообщение для map? Можно вернуть None.
+        return None
+    else:
+        # Только медиа (фото, видео, файл) – отправляем подпись и копируем медиа
+        await context.bot.send_message(
+            chat_id=GROUP_CHAT_ID,
+            message_thread_id=thread_id,
+            text=f"*{ROLE_NAMES_RU.get(role, role).capitalize()}*",
+            parse_mode="Markdown"
+        )
+        return await context.bot.copy_message(
+            chat_id=GROUP_CHAT_ID,
+            from_chat_id=message.chat.id,
+            message_id=message.message_id,
+            message_thread_id=thread_id,
+        )    
 
 
 async def handle_private_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
