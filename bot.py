@@ -302,25 +302,42 @@ async def broadcast_copy_to_room(
     context,
     room_id: int,
     exclude_user_id,
-    label: str,
+    role: str,
     from_chat_id: int,
     message_id: int,
+    text_content: str = None,
 ):
-    """Рассылает копию сообщения (с сохранением медиа/форматирования) всем участникам
-    комнаты, кроме exclude_user_id. Заголовок с ролью отправляется отдельным сообщением,
-    БЕЗ parse_mode — чтобы произвольный текст пользователя не ломал разметку Telegram."""
-    for member in storage.get_room_members(room_id):
+    """Рассылает сообщение всем участникам комнаты, кроме exclude_user_id.
+    Для текстовых сообщений — одним сообщением с жирной ролью и текстом.
+    Для медиа — подпись отдельно, потом копия медиа."""
+    members = storage.get_room_members(room_id)
+    role_display = ROLE_NAMES_RU.get(role, role).capitalize()
+
+    for member in members:
         if member["user_id"] == exclude_user_id:
             continue
         try:
-            await context.bot.send_message(chat_id=member["user_id"], text=label)
-            await context.bot.copy_message(
-                chat_id=member["user_id"],
-                from_chat_id=from_chat_id,
-                message_id=message_id,
-            )
+            if text_content:
+                # Текстовое сообщение – отправляем одним сообщением
+                await context.bot.send_message(
+                    chat_id=member["user_id"],
+                    text=f"*{role_display}*\n{text_content}",
+                    parse_mode="Markdown"
+                )
+            else:
+                # Медиа без текста – подпись отдельно, потом копия медиа
+                await context.bot.send_message(
+                    chat_id=member["user_id"],
+                    text=f"*{role_display}*",
+                    parse_mode="Markdown"
+                )
+                await context.bot.copy_message(
+                    chat_id=member["user_id"],
+                    from_chat_id=from_chat_id,
+                    message_id=message_id,
+                )
         except Exception as e:
-            logger.warning(f"Не удалось переслать сообщение участнику {member['user_id']}: {e}")
+            logger.warning(f"Не удалось отправить сообщение участнику {member['user_id']}: {e}")
 
 
 # -------------------- пересылка: пользователь -> тема --------------------
@@ -401,23 +418,22 @@ async def handle_private_message(update: Update, context: ContextTypes.DEFAULT_T
             thread_id = new_topic.message_thread_id
             storage.update_thread_id(room["room_id"], thread_id)
 
-            copied = await _send_to_topic(context, thread_id, role, message)
-            storage.save_message_map(copied.message_id, thread_id, user.id)
-        except Exception as e2:
-            logger.error(f"Не удалось восстановить тему для комнаты {room['room_id']}: {e2}")
-            await message.reply_text("⚠️ Не удалось отправить сообщение. Попробуйте ещё раз.")
-            return
+       copied = await _send_to_topic(context, thread_id, role, message)
+# Если _send_to_topic вернула None (текстовое сообщение), то не сохраняем map
+if copied:
+    storage.save_message_map(copied.message_id, thread_id, user.id)
 
-    # Все остальные участники комнаты (родители/ученик) тоже видят переписку —
-    # рассылаем им копию с той же пометкой роли, что ушла в тему.
-    await broadcast_copy_to_room(
-        context,
-        room["room_id"],
-        exclude_user_id=user.id,
-        label=label,
-        from_chat_id=message.chat.id,
-        message_id=message.message_id,
-    )
+# Рассылка всем участникам (текст берём из message.text или message.caption)
+text_content = message.text or message.caption
+await broadcast_copy_to_room(
+    context,
+    room["room_id"],
+    exclude_user_id=user.id,
+    role=role,
+    from_chat_id=message.chat.id,
+    message_id=message.message_id,
+    text_content=text_content,
+)
 
 
 # -------------------- пересылка: сообщение в теме -> всем участникам комнаты --------------------
@@ -446,14 +462,16 @@ async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYP
     role = sender_row["role"] if sender_row and sender_row["role"] else ROLE_TEACHER
     label = f"📩 Сообщение от {role_label(role)}:"
 
-    await broadcast_copy_to_room(
-        context,
-        room["room_id"],
-        exclude_user_id=sender.id,
-        label=label,
-        from_chat_id=message.chat.id,
-        message_id=message.message_id,
-    )
+text_content = message.text or message.caption
+await broadcast_copy_to_room(
+    context,
+    room["room_id"],
+    exclude_user_id=sender.id,
+    role=role,
+    from_chat_id=message.chat.id,
+    message_id=message.message_id,
+    text_content=text_content,
+)
 
 
 # -------------------- main --------------------
